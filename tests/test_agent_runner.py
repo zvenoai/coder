@@ -1260,3 +1260,166 @@ class TestExternallyResolvedFlag:
         )
         merged = merge_results(base, update)
         assert merged.externally_resolved is False
+
+
+class TestBuildOptionsWithMailbox:
+    """Characterization: mailbox/comm branch in _build_options."""
+
+    def test_mailbox_adds_comm_server_and_tools(
+        self,
+        mock_sdk,
+        tmp_path,
+    ) -> None:
+        """When mailbox is provided, comm MCP server and tools are added."""
+        from orchestrator.agent_runner import AgentRunner
+
+        wf = tmp_path / "workflow.md"
+        wf.write_text("# Workflow")
+
+        config = _make_config(workflow_prompt_path=str(wf))
+        tracker = MagicMock(spec=TrackerClient)
+        runner = AgentRunner(config, tracker)
+
+        mailbox = MagicMock()
+        runner._build_options(
+            _make_issue(),
+            mailbox=mailbox,
+            cwd="/tmp",
+        )
+
+        call_kwargs = mock_sdk.ClaudeAgentOptions.call_args.kwargs
+        assert "comm" in call_kwargs["mcp_servers"]
+        for tool_name in (
+            "mcp__comm__list_running_agents",
+            "mcp__comm__send_message_to_agent",
+            "mcp__comm__send_request_to_agent",
+            "mcp__comm__reply_to_message",
+            "mcp__comm__check_messages",
+        ):
+            assert tool_name in call_kwargs["allowed_tools"]
+
+    def test_no_mailbox_no_comm_tools(
+        self,
+        mock_sdk,
+        tmp_path,
+    ) -> None:
+        """Without mailbox, no comm server or tools."""
+        from orchestrator.agent_runner import AgentRunner
+
+        wf = tmp_path / "workflow.md"
+        wf.write_text("# Workflow")
+
+        config = _make_config(workflow_prompt_path=str(wf))
+        tracker = MagicMock(spec=TrackerClient)
+        runner = AgentRunner(config, tracker)
+
+        runner._build_options(_make_issue(), cwd="/tmp")
+
+        call_kwargs = mock_sdk.ClaudeAgentOptions.call_args.kwargs
+        assert "comm" not in call_kwargs["mcp_servers"]
+        assert "mcp__comm__list_running_agents" not in (call_kwargs["allowed_tools"])
+
+
+class TestSendToolStateConsumption:
+    """Characterization: send() reads and resets ToolState."""
+
+    async def test_send_reads_needs_info(self, mock_sdk) -> None:
+        """send() returns needs_info=True and resets the flag."""
+        from orchestrator.agent_runner import AgentSession
+        from orchestrator.tracker_tools import ToolState
+
+        mock_client = AsyncMock()
+
+        async def mock_receive():
+            return
+            yield
+
+        mock_client.receive_response = mock_receive
+        mock_client.query = AsyncMock()
+
+        ts = ToolState(needs_info_requested=True)
+        session = AgentSession(
+            mock_client,
+            "QR-1",
+            tool_state=ts,
+        )
+        result = await session.send("do something")
+
+        assert result.needs_info is True
+        assert ts.needs_info_requested is False
+
+    async def test_send_reads_proposals(self, mock_sdk) -> None:
+        """send() returns proposals and clears the list."""
+        from orchestrator.agent_runner import AgentSession
+        from orchestrator.tracker_tools import ToolState
+
+        mock_client = AsyncMock()
+
+        async def mock_receive():
+            return
+            yield
+
+        mock_client.receive_response = mock_receive
+        mock_client.query = AsyncMock()
+
+        proposal = {"title": "Idea", "description": "Details"}
+        ts = ToolState(proposals=[proposal])
+        session = AgentSession(
+            mock_client,
+            "QR-1",
+            tool_state=ts,
+        )
+        result = await session.send("do something")
+
+        assert result.proposals == [proposal]
+        assert ts.proposals == []
+
+
+class TestAgentOutputEvent:
+    """Characterization: send() publishes AGENT_OUTPUT per TextBlock."""
+
+    async def test_send_publishes_agent_output_event(
+        self,
+        mock_sdk,
+    ) -> None:
+        """Each TextBlock in AssistantMessage publishes AGENT_OUTPUT."""
+        from orchestrator.agent_runner import AgentSession
+        from orchestrator.event_bus import EventBus
+
+        AssistantMessage = mock_sdk.AssistantMessage
+        TextBlock = mock_sdk.TextBlock
+
+        mock_client = AsyncMock()
+
+        block1 = MagicMock(spec=TextBlock)
+        block1.__class__ = TextBlock
+        block1.text = "Hello"
+
+        block2 = MagicMock(spec=TextBlock)
+        block2.__class__ = TextBlock
+        block2.text = " world"
+
+        msg = MagicMock(spec=AssistantMessage)
+        msg.__class__ = AssistantMessage
+        msg.error = None
+        msg.content = [block1, block2]
+
+        async def mock_receive():
+            yield msg
+
+        mock_client.receive_response = mock_receive
+        mock_client.query = AsyncMock()
+
+        event_bus = EventBus()
+        session = AgentSession(
+            mock_client,
+            "QR-1",
+            event_bus=event_bus,
+        )
+        await session.send("do something")
+
+        history = event_bus.get_task_history("QR-1")
+        output_events = [e for e in history if e.type == "agent_output"]
+        assert len(output_events) == 2
+        assert output_events[0].data["text"] == "Hello"
+        assert output_events[1].data["text"] == " world"

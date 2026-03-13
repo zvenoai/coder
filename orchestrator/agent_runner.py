@@ -146,7 +146,6 @@ class _ResultData(NamedTuple):
     cost: float | None
     input_tokens: int
     output_tokens: int
-    session_id: str | None
 
 
 class _ToolStateSnapshot(NamedTuple):
@@ -299,7 +298,6 @@ class AgentSession:
             cost=cost,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            session_id=self._session_id,
         )
 
     def _read_tool_state(self) -> _ToolStateSnapshot:
@@ -366,7 +364,7 @@ class AgentSession:
             )
         start = time.monotonic()
         output_parts: list[str] = []
-        result_data = _ResultData(None, 0, 0, None)
+        result_data = _ResultData(None, 0, 0)
         is_rate_limited = False
         try:
             await self._client.query(prompt)

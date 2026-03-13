@@ -1,0 +1,212 @@
+version: "3"
+
+vars:
+  PY_IMAGE: coder-ci-python
+  FE_IMAGE: coder-ci-frontend
+  # Volume mounts for Python source code (image has deps only)
+  PY_MOUNT: >-
+    -v {{.ROOT_DIR}}/orchestrator:/app/orchestrator
+    -v {{.ROOT_DIR}}/tests:/app/tests
+    -v {{.ROOT_DIR}}/prompts:/app/prompts
+
+tasks:
+  # ── Build CI images (deps only, rebuilt only when deps change) ───
+
+  ci:python:
+    internal: true
+    cmds:
+      - docker build -t {{.PY_IMAGE}} -f ci/python.Dockerfile .
+    sources:
+      - ci/python.Dockerfile
+      - pyproject.toml
+    method: checksum
+
+  ci:frontend:
+    internal: true
+    cmds:
+      - docker build -t {{.FE_IMAGE}} -f ci/frontend.Dockerfile frontend/
+    sources:
+      - ci/frontend.Dockerfile
+      - frontend/package.json
+      - frontend/package-lock.json
+      - frontend/src/**/*
+      - frontend/tsconfig*.json
+      - frontend/eslint.config.js
+      - frontend/vite.config.ts
+      - frontend/vitest.config.ts
+    method: checksum
+
+  # ── Python checks ────────────────────────────────────────────────
+
+  lint:
+    desc: Run ruff linter
+    deps: [ci:python]
+    cmds:
+      - docker run --rm {{.PY_MOUNT}} {{.PY_IMAGE}} ruff check .
+
+  format:check:
+    desc: Check code formatting with ruff
+    deps: [ci:python]
+    cmds:
+      - docker run --rm {{.PY_MOUNT}} {{.PY_IMAGE}} ruff format --check .
+
+  typecheck:
+    desc: Run mypy type checker
+    deps: [ci:python]
+    cmds:
+      - docker run --rm {{.PY_MOUNT}} {{.PY_IMAGE}} mypy orchestrator/
+
+  test:
+    desc: Run pytest with coverage (75% threshold)
+    deps: [ci:python]
+    cmds:
+      - docker run --rm {{.PY_MOUNT}} {{.PY_IMAGE}} pytest tests/ -v --cov=orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=75
+
+  audit:
+    desc: Audit Python dependencies for vulnerabilities
+    deps: [ci:python]
+    cmds:
+      - docker run --rm {{.PY_IMAGE}} pip audit
+    ignore_error: true
+
+  # ── Frontend checks ────────────────────────────────────────────
+
+  frontend:typecheck:
+    desc: TypeScript type check
+    deps: [ci:frontend]
+    cmds:
+      - docker run --rm {{.FE_IMAGE}} npm run typecheck
+
+  frontend:lint:
+    desc: Run ESLint
+    deps: [ci:frontend]
+    cmds:
+      - docker run --rm {{.FE_IMAGE}} npm run lint
+
+  frontend:test:
+    desc: Run frontend tests (Vitest)
+    deps: [ci:frontend]
+    cmds:
+      - docker run --rm {{.FE_IMAGE}} npm run test
+
+  frontend:build:
+    desc: Build frontend for production
+    deps: [ci:frontend]
+    cmds:
+      - docker run --rm {{.FE_IMAGE}} npm run build
+
+  # ── Security checks ──────────────────────────────────────────
+
+  semgrep:
+    desc: Run Semgrep security scanner
+    cmds:
+      - >-
+        docker run --rm
+        -v {{.ROOT_DIR}}:/src
+        returntocorp/semgrep:latest
+        semgrep scan
+        --config=auto
+        --config=/src/.semgrep.yml
+        --error
+        --exclude=.venv
+        --exclude=node_modules
+        --exclude=frontend/dist
+        --exclude=.git
+        /src
+
+  gitleaks:
+    desc: Run Gitleaks secret scanner
+    cmds:
+      - >-
+        docker run --rm
+        -v {{.ROOT_DIR}}:/src
+        zricethezav/gitleaks:latest
+        detect
+        --source=/src
+        --no-git
+
+  npm-audit:
+    desc: Audit frontend dependencies for vulnerabilities
+    deps: [ci:frontend]
+    preconditions:
+      - test -f frontend/package-lock.json
+    cmds:
+      - docker run --rm {{.FE_IMAGE}} npm audit --audit-level=moderate
+    ignore_error: true
+
+  govulncheck:
+    desc: Run Go vulnerability scanner
+    preconditions:
+      - test -f go.mod
+    cmds:
+      - >-
+        docker run --rm
+        -v {{.ROOT_DIR}}:/src
+        -w /src
+        golang:1.23-alpine
+        sh -c "go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./..."
+    ignore_error: true
+
+  security:
+    desc: All security checks (semgrep, gitleaks, npm-audit)
+    cmds:
+      - task: semgrep
+      - task: gitleaks
+      - task: npm-audit
+
+  # ── Aggregate tasks ────────────────────────────────────────────
+
+  python:quality:
+    desc: All Python quality checks (lint, format, typecheck, test)
+    cmds:
+      - task: lint
+      - task: format:check
+      - task: typecheck
+      - task: test
+
+  frontend:quality:
+    desc: All frontend quality checks (typecheck, lint, test, build)
+    cmds:
+      - task: frontend:typecheck
+      - task: frontend:lint
+      - task: frontend:test
+      - task: frontend:build
+
+  quality:
+    desc: All quality checks (Python + Frontend in parallel)
+    deps:
+      - python:quality
+      - frontend:quality
+
+  # ── Run (local dev) ────────────────────────────────────────────
+
+  run:
+    desc: Start backend server and frontend dev server
+    deps:
+      - run:backend
+      - run:frontend
+
+  run:backend:
+    desc: Start the orchestrator backend
+    cmds:
+      - .venv/bin/python -m orchestrator.main
+
+  run:frontend:
+    desc: Start the frontend dev server
+    dir: frontend
+    cmds:
+      - npm run dev
+
+  # ── Dev convenience (write back to host) ───────────────────────
+
+  format:
+    desc: Auto-format Python code with ruff
+    deps: [ci:python]
+    cmds:
+      - docker run --rm {{.PY_MOUNT}} {{.PY_IMAGE}} ruff format .
+
+  lint:fix:
+    desc: Auto-fix Python linter issues with ruff
+    deps: [ci:python]
+    cmds:
+      - docker run --rm {{.PY_MOUNT}} {{.PY_IMAGE}} ruff check --fix .

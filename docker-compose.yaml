@@ -1,0 +1,18 @@
+services:
+  orchestrator:
+    build: .
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - workspace:/workspace
+      - stats-data:/app/data
+      - ./prompts:/app/prompts:ro
+      # Docker socket for make gen / docker compose / testcontainers
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    stop_grace_period: 120s
+
+volumes:
+  workspace:
+  stats-data:

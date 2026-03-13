@@ -1,0 +1,36 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+.env
+.venv/
+/workspace/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Legacy config (now REPOS_CONFIG env var)
+repos.yaml
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Task (go-task) checksum cache
+.task/

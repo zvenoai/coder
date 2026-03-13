@@ -1,0 +1,58 @@
+name: Code Quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  python-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Python quality (lint, format, typecheck, test)
+        run: task python:quality
+
+      - name: Audit Python dependencies
+        run: task audit
+        continue-on-error: true
+
+  frontend-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Frontend quality (typecheck, lint, test, build)
+        run: task frontend:quality
+
+      - name: Audit frontend dependencies
+        run: task npm-audit
+        continue-on-error: true
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Security checks (semgrep, gitleaks)
+        run: task security
+        continue-on-error: true

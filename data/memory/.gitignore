@@ -1,0 +1,8 @@
+# Ignore SQLite index (regenerated from markdown files)
+.index.sqlite
+.index.sqlite-journal
+.index.sqlite-wal
+.index.sqlite-shm
+
+# Keep daily journal files local
+[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md

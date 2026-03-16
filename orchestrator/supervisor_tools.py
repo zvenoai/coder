@@ -1403,6 +1403,7 @@ def build_supervisor_server(
                 remove_dispatched_callback(task_key)
             if clear_recovery_callback is not None:
                 clear_recovery_callback(task_key)
+                logger.info("Cleared recovery state for %s", task_key)
             if preflight_checker is not None:
                 preflight_checker.approve_for_dispatch(
                     task_key,

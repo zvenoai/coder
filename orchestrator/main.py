@@ -206,6 +206,7 @@ class Orchestrator:
                 preflight_checker=self._preflight_checker,
                 mark_dispatched_callback=self._dispatched.add,
                 remove_dispatched_callback=self._dispatched.discard,
+                clear_recovery_callback=self._recovery.clear,
                 get_state_callback=self.get_state,
                 get_task_events_callback=self._get_task_events,
             )

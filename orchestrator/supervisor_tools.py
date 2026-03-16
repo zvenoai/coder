@@ -65,6 +65,7 @@ def build_supervisor_server(
     preflight_checker: PreflightChecker | None = None,
     mark_dispatched_callback: Callable[[str], None] | None = None,
     remove_dispatched_callback: Callable[[str], None] | None = None,
+    clear_recovery_callback: Callable[[str], None] | None = None,
     event_bus: EventBus | None = None,
     # Heartbeat monitor (optional — for get_agent_health tool)
     heartbeat_monitor: HeartbeatMonitor | None = None,
@@ -1400,6 +1401,8 @@ def build_supervisor_server(
             task_key = args["task_key"]
             if remove_dispatched_callback is not None:
                 remove_dispatched_callback(task_key)
+            if clear_recovery_callback is not None:
+                clear_recovery_callback(task_key)
             if preflight_checker is not None:
                 preflight_checker.approve_for_dispatch(
                     task_key,

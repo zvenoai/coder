@@ -33,6 +33,7 @@ def _build_tools_and_deps(
     preflight_checker: object | None = None,
     mark_dispatched_callback: object | None = None,
     remove_dispatched_callback: object | None = None,
+    clear_recovery_callback: object | None = None,
     event_bus: object | None = None,
 ) -> tuple[dict[str, Any], MagicMock, list[dict[str, str]], list[dict[str, object]]]:
     """Build supervisor tools and return (tools_by_name, tracker_mock, proposals, events).
@@ -84,6 +85,7 @@ def _build_tools_and_deps(
         preflight_checker=preflight_checker,
         mark_dispatched_callback=mark_dispatched_callback,
         remove_dispatched_callback=remove_dispatched_callback,
+        clear_recovery_callback=clear_recovery_callback,
         event_bus=event_bus,
     )
 
@@ -3084,6 +3086,73 @@ class TestResolvePreflight:
         assert "pull/101" in text
         # Should NOT have removed from deferred (skip rejected)
         dep_mgr.remove_deferred.assert_not_called()
+
+
+# ===================================================================
+# requeue_task
+# ===================================================================
+
+
+class TestRequeueTask:
+    """Tests for requeue_task tool."""
+
+    def _make_requeue_deps(
+        self,
+        clear_recovery: object | None = None,
+    ) -> tuple[dict[str, Any], MagicMock, MagicMock, MagicMock]:
+        """Build tools with requeue_task support.
+
+        Returns (tools, preflight, remove_dispatched, dep_mgr).
+        """
+        preflight = MagicMock()
+        preflight.approve_for_dispatch = MagicMock()
+        remove_dispatched = MagicMock()
+
+        dep_mgr = MagicMock()
+        dep_mgr.approve_dispatch = AsyncMock()
+        dep_mgr.remove_deferred = AsyncMock()
+
+        storage = MagicMock()
+        storage.load_pr_tracking = AsyncMock(return_value=[])
+
+        event_bus = MagicMock()
+        event_bus.publish = AsyncMock()
+
+        tools, _, _, _ = _build_tools_and_deps(
+            preflight_checker=preflight,
+            dependency_manager=dep_mgr,
+            remove_dispatched_callback=remove_dispatched,
+            clear_recovery_callback=clear_recovery,
+            storage=storage,
+            event_bus=event_bus,
+        )
+        return tools, preflight, remove_dispatched, dep_mgr
+
+    @pytest.mark.asyncio
+    async def test_requeue_clears_recovery_state(self) -> None:
+        """requeue_task must call clear_recovery_callback to reset retry counter."""
+        clear_recovery = MagicMock()
+        tools, preflight, remove_dispatched, _ = self._make_requeue_deps(
+            clear_recovery=clear_recovery,
+        )
+
+        result = await tools["requeue_task"]({"task_key": "QR-273"})
+
+        clear_recovery.assert_called_once_with("QR-273")
+        remove_dispatched.assert_called_once_with("QR-273")
+        preflight.approve_for_dispatch.assert_called_once_with("QR-273")
+        assert "re-queued" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_requeue_without_recovery_callback(self) -> None:
+        """requeue_task works when clear_recovery_callback is None."""
+        tools, preflight, remove_dispatched, _ = self._make_requeue_deps()
+
+        result = await tools["requeue_task"]({"task_key": "QR-100"})
+
+        remove_dispatched.assert_called_once_with("QR-100")
+        preflight.approve_for_dispatch.assert_called_once_with("QR-100")
+        assert "re-queued" in result["content"][0]["text"]
 
 
 # ===================================================================

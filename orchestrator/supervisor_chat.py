@@ -104,6 +104,7 @@ class SupervisorChatManager:
         preflight_checker: PreflightChecker | None = None,
         mark_dispatched_callback: Callable[[str], None] | None = None,
         remove_dispatched_callback: Callable[[str], None] | None = None,
+        clear_recovery_callback: Callable[[str], None] | None = None,
         # Diagnostic callbacks
         get_state_callback: Callable[[], dict[str, Any]] | None = None,
         get_task_events_callback: (Callable[[str], list[dict[str, Any]]] | None) = None,
@@ -135,6 +136,7 @@ class SupervisorChatManager:
         self._preflight_checker = preflight_checker
         self._mark_dispatched = mark_dispatched_callback
         self._remove_dispatched = remove_dispatched_callback
+        self._clear_recovery = clear_recovery_callback
         self._get_state_callback = get_state_callback
         self._get_task_events_callback = get_task_events_callback
         self._heartbeat_monitor = heartbeat_monitor
@@ -209,6 +211,7 @@ class SupervisorChatManager:
                 preflight_checker=self._preflight_checker,
                 mark_dispatched_callback=self._mark_dispatched,
                 remove_dispatched_callback=self._remove_dispatched,
+                clear_recovery_callback=self._clear_recovery,
                 event_bus=self._event_bus,
                 heartbeat_monitor=self._heartbeat_monitor,
                 get_state_callback=self._get_state_callback,
